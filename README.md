@@ -1,86 +1,99 @@
 # Google-Maps-Scrapper
-This Python script utilizes the Playwright library to perform web scraping and data extraction from Google Maps. It is particularly designed for obtaining information about businesses, including their name, address, website, phone number, reviews, and more.
 
-To do a custom web scraping project you can find me on Upwork
-
-<a href="https://www.upwork.com/freelancers/~01dbb4d47d167c2d43" target="_blank">
-<img src=https://img.shields.io/badge/Upwork-6FDA44?&style=for-the-badge&logo=medium&logoColor=white alt=medium style="margin-bottom: 5px;" />
-</a>
+Script Python qui scrape Google Maps pour extraire des informations sur des établissements, puis visite automatiquement leurs sites web pour y collecter des adresses email.
 
 ## Table of Contents
+
 - [Prerequisites](#prerequisites)
 - [Key Features](#key-features)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Example](#example)
+- [Examples](#examples)
 - [Notes](#notes)
-- [Video Example](#video-example)
 
 ## Prerequisites
-- Python 3.8 or 3.9 (Python 3.10+ may not be compatible with some dependencies)
-- Google Chrome or Chromium browser installed (for Playwright)
+
+- Python 3.8+
+- Chromium (installé automatiquement via Playwright)
 
 ## Key Features
-- Data Scraping: The script scrapes data from Google Maps listings, extracting valuable information about businesses, such as their name, address, website, and contact details.
 
-- Review Analysis: It extracts review counts and average ratings, providing insights into businesses' online reputation.
-
-- Business Type Detection: The script identifies whether a business offers in-store shopping, in-store pickup, or delivery services.
-
-- Operating Hours: It extracts information about the business's operating hours.
-
-- Introduction Extraction: The script also scrapes introductory information about the businesses when available.
-
-- Data Cleansing: It cleanses and organizes the scraped data, removing redundant or unnecessary columns.
-
-- CSV Export: The cleaned data is exported to a CSV file for further analysis or integration with other tools.
+- **Google Maps scraping** : nom, adresse, site web, téléphone, note, nombre d'avis, type d'établissement, horaires, description.
+- **Email harvesting** : pour chaque fiche, le script visite le site web et scrape les emails disponibles (page principale + page contact en fallback).
+- **Limite d'emails par site** : configurable pour éviter de récupérer des dizaines d'adresses génériques depuis un même site.
+- **Gestion du consentement** : acceptation automatique de la page de cookies Google.
+- **Délai aléatoire** : pause variable entre 0.5s et 2s entre chaque site pour limiter la détection.
+- **Export CSV** : toutes les données dans un fichier CSV, avec support de l'append.
+- **Mode interactif** : lancement sans arguments pour une configuration guidée en terminal.
 
 ## Installation
 
-1. Clone this repository:
+1. Cloner le dépôt :
+
    ```bash
-   git clone https://github.com/zohaibbashir/Google-Maps-Scrapper.git
-   cd google-maps-scraper
+   git clone https://github.com/RDSV01/Google-Maps-Scrapper.git
+   cd Google-Maps-Scrapper
    ```
-2. Install Python dependencies:
+
+2. Installer les dépendances Python :
+
    ```bash
    pip install -r requirements.txt
    ```
-3. Install Playwright browsers:
+
+3. Installer Chromium pour Playwright :
    ```bash
-   playwright install
+   playwright install chromium
    ```
 
 ## Usage
 
-Run the script with your desired search term and number of results:
+### Mode interactif (recommandé)
 
 ```bash
-python main.py -s "Turkish Restaurants in Toronto Canada" -t 20
+python main.py
 ```
 
-- `-s` or `--search`: Search query for Google Maps (default: "turkish stores in toronto Canada")
-- `-t` or `--total`: Number of results to scrape (default: 1)
-- `-o` or `--output`: Output CSV file path (default: result.csv)
-- `--append`: Append results to the output file instead of overwriting (default: off)
+Le script pose les questions suivantes :
 
-## Example
+- Requête Google Maps
+- Nombre de fiches à scraper
+- Fichier de sortie
+- Nombre d'emails maximum par site
 
-Append new results to an existing CSV file:
+### Mode ligne de commande
+
 ```bash
-python main.py -s "Turkish Restaurants in Toronto Canada" -t 20 -o toronto_turkish_restaurants.csv --append
+python main.py -s "avocat paris" -t 20
 ```
 
-The script will launch a browser, perform the search, and start scraping information. Progress will be displayed in the terminal, and results will be saved to the specified CSV file. If `--append` is used, new results will be added to the end of the file without removing previous data.
+## Examples
+
+Scraper 20 avocats à Paris avec 1 email max par site :
+
+```bash
+python main.py -s "avocat paris" -t 20 --max-per-site 1
+```
+
+Ajouter des résultats à un fichier existant :
+
+```bash
+python main.py -s "restaurants paris 15e" -t 50 -o paris.csv --append
+```
+
+Scraper uniquement les données Maps sans les emails :
+
+```bash
+python main.py -s "plombiers lyon" -t 30 --no-emails
+```
 
 ## Notes
-- The script opens a visible browser window (not headless) for scraping.
-- Google Maps DOM may change, which can break the script. If you encounter issues, update the XPaths in `main.py`.
-- Avoid running too many scrapes in a short period to prevent being blocked by Google.
 
-## Video Example
-
-https://www.linkedin.com/posts/zohaibbashir_python-data-webscraping-activity-7093920891411062784-flEQ
+- Le navigateur s'ouvre en mode visible (non headless) pour contourner les protections de Google Maps.
+- Les XPaths Google Maps peuvent changer à tout moment. En cas de données manquantes, vérifier et mettre à jour les sélecteurs dans `main.py`.
+- Ne pas lancer des volumes trop importants en peu de temps pour éviter d'être bloqué par Google.
+- Chrome est détecté automatiquement s'il est installé. Sinon, le Chromium bundlé de Playwright est utilisé.
 
 ## License
+
 MIT
