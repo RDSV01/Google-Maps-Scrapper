@@ -262,7 +262,6 @@ def scrape_maps(search_for: str, total: int) -> List[Place]:
                     pass
 
             # ── Navigation directe avec la recherche dans l'URL ─────────
-            # Plus robuste : évite les problèmes post-consentement
             from urllib.parse import quote as _quote
             search_url = f"https://www.google.com/maps/search/{_quote(search_for)}"
             print_status(f"Navigation : {search_url}", "info")
@@ -416,7 +415,6 @@ def scrape_emails_from_url(url: str, timeout: int = 12) -> List[str]:
     """Wrapper avec timeout multiprocessing."""
     if not url:
         return []
-    # Construire une URL complète si nécessaire
     if not url.startswith('http'):
         url = 'https://' + url
     if is_site_excluded(url):
@@ -471,7 +469,6 @@ def save_to_csv(places: List[Place], output_path: str, append: bool = False) -> 
     if df.empty:
         print_status("Aucune donnée à sauvegarder.", "warning")
         return
-    # Supprimer les colonnes entièrement vides / constantes
     for col in df.columns:
         if df[col].nunique() <= 1:
             df.drop(col, axis=1, inplace=True)
@@ -481,15 +478,17 @@ def save_to_csv(places: List[Place], output_path: str, append: bool = False) -> 
     print_status(f"{len(df)} lignes sauvegardées → {output_path}", "save")
 
 
-def display_summary(places: List[Place], output_path: str) -> None:
+def display_summary(places: List[Place], output_path: str, excluded_count: int = 0) -> None:
     total_with_email = sum(1 for p in places if p.emails)
     print()
     print_sep("═", 80, Colors.BRIGHT_GREEN)
+    excluded_line = f"  Fiches exclues    : {excluded_count} (sans site ni email)\n" if excluded_count else ""
     summary = (
         f"✅ TERMINÉ\n\n"
         f"  Fiches scrappées  : {len(places)}\n"
         f"  Avec email(s)     : {total_with_email}\n"
         f"  Sans email        : {len(places) - total_with_email}\n"
+        f"{excluded_line}"
         f"  Fichier de sortie : {output_path}\n"
         f"  Date              : {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
     )
@@ -537,35 +536,55 @@ def get_user_input_interactive():
         except ValueError:
             print_status("Nombre invalide.", "error")
 
+    # ── NOUVELLE OPTION ──────────────────────────────────────────────────
+    while True:
+        raw = input(c("Exclure les fiches sans site web ET sans email ? (o/n, defaut: n) : ", Colors.BRIGHT_CYAN)).strip().lower()
+        if raw in ('', 'o', 'n'):
+            only_with_contact = (raw == 'o')
+            break
+        print_status("Repondre par 'o' ou 'n'.", "error")
+    # ────────────────────────────────────────────────────────────────────
+
     print()
+    only_contact_label = "Oui" if only_with_contact else "Non"
     print_box(
-        f"CONFIGURATION\n\n  Requete      : {query}\n  Fiches       : {total}\n  Emails/site  : {max_per_site}\n  Sortie       : {output}",
+        f"CONFIGURATION\n\n"
+        f"  Requete           : {query}\n"
+        f"  Fiches            : {total}\n"
+        f"  Emails/site       : {max_per_site}\n"
+        f"  Sortie            : {output}\n"
+        f"  Exclure sans contact : {only_contact_label}",
         Colors.BRIGHT_GREEN
     )
     input(c("\nAppuyez sur Entree pour demarrer...", Colors.BRIGHT_YELLOW))
-    return query, total, output, max_per_site
+    return query, total, output, max_per_site, only_with_contact
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Scrape Google Maps + emails depuis les sites web des fiches."
     )
-    parser.add_argument("-s", "--search",  type=str, help="Requête de recherche Google Maps")
-    parser.add_argument("-t", "--total",   type=int, default=10, help="Nombre de fiches à scraper")
-    parser.add_argument("-o", "--output",  type=str, default="result.csv", help="Fichier CSV de sortie")
-    parser.add_argument("--append",        action="store_true", help="Ajouter au CSV existant")
-    parser.add_argument("--no-emails",     action="store_true", help="Desactiver le scraping d'emails")
-    parser.add_argument("--max-per-site",   type=int, default=None, help="Emails max par site (defaut: 1)")
+    parser.add_argument("-s", "--search",            type=str,  help="Requête de recherche Google Maps")
+    parser.add_argument("-t", "--total",             type=int,  default=10,   help="Nombre de fiches à scraper")
+    parser.add_argument("-o", "--output",            type=str,  default="result.csv", help="Fichier CSV de sortie")
+    parser.add_argument("--append",                  action="store_true", help="Ajouter au CSV existant")
+    parser.add_argument("--no-emails",               action="store_true", help="Desactiver le scraping d'emails")
+    parser.add_argument("--max-per-site",            type=int,  default=None, help="Emails max par site (defaut: 1)")
+    # ── NOUVEL ARGUMENT CLI ─────────────────────────────────────────────
+    parser.add_argument("--only-with-contact",       action="store_true",
+                        help="Exclure du CSV les fiches sans site web ni email")
+    # ───────────────────────────────────────────────────────────────────
     args = parser.parse_args()
 
     if args.search:
         print_header()
-        search_for   = args.search
-        total        = args.total
-        output_path  = args.output
-        max_per_site = args.max_per_site if args.max_per_site is not None else 1
+        search_for        = args.search
+        total             = args.total
+        output_path       = args.output
+        max_per_site      = args.max_per_site if args.max_per_site is not None else 1
+        only_with_contact = args.only_with_contact
     else:
-        search_for, total, output_path, max_per_site = get_user_input_interactive()
+        search_for, total, output_path, max_per_site, only_with_contact = get_user_input_interactive()
 
     # ── Étape 1 : Google Maps ──────────────────
     print()
@@ -583,9 +602,23 @@ def main():
     else:
         print_status("Scraping d'emails desactive (--no-emails).", "skip")
 
+    # ── Étape 2.5 : Filtrage fiches sans contact ──────────────────────
+    excluded_count = 0
+    if only_with_contact:
+        before = len(places)
+        places = [p for p in places if p.website and p.emails]
+        excluded_count = before - len(places)
+        if excluded_count:
+            print_status(
+                f"{excluded_count} fiche(s) exclue(s) du CSV (pas de site web ni d'email).",
+                "skip"
+            )
+        else:
+            print_status("Aucune fiche exclue (toutes ont un site ou un email).", "info")
+
     # ── Étape 3 : Sauvegarde ──────────────────
     save_to_csv(places, output_path, append=args.append)
-    display_summary(places, output_path)
+    display_summary(places, output_path, excluded_count=excluded_count)
 
 
 if __name__ == "__main__":

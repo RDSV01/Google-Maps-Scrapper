@@ -60,6 +60,7 @@ Le script pose les questions suivantes :
 - Nombre de fiches à scraper
 - Fichier de sortie
 - Nombre d'emails maximum par site
+- Exclure l'export des fiches sans site web ou sans email
 
 ### Mode ligne de commande
 
