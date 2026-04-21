@@ -90,7 +90,7 @@ def print_header() -> None:
 | |\/| || | | | | |_) || |\/| || |_| | | | | |    
 | |  | || |_| | |  _ < | |  | ||  _  | | | | |___ 
 |_|  |_|\___/  |_| \_\|_|  |_||_| |_||___||_____|
-    Maps + Email Harvester  ·  V2.0  ·  By RDSV01
+    Maps + Email Harvester  ·  V2.1  ·  By RDSV01
 """
     print_c(banner, Colors.BRIGHT_CYAN)
     print_c("  Google Maps scraper  ->  Website email harvester".center(55), Colors.BRIGHT_YELLOW)
@@ -115,7 +115,7 @@ class Place:
     place_type:       str            = ""
     opens_at:         str            = ""
     introduction:     str            = ""
-    emails:           str            = ""   # ← emails séparés par ";"
+    emails:           str            = ""   # emails séparés par ";"
 
 
 # ─────────────────────────────────────────────
@@ -285,16 +285,71 @@ def scrape_maps(search_for: str, total: int) -> List[Place]:
                 '//a[contains(@href, "https://www.google.com/maps/place")]',
                 timeout=30000
             )
-            page.hover('//a[contains(@href, "https://www.google.com/maps/place")]')
 
+            # ── Localise le panneau de résultats scrollable ──────────────
+            # Google Maps affiche les résultats dans un conteneur indépendant ;
+            # scroller la page entière ne charge PAS de nouveaux résultats.
+            PANEL_SELECTORS = [
+                'div[role="feed"]',       # sélecteur le plus stable (attribut ARIA)
+                'div.m6QErb[aria-label]', # fallback classe CSS + attribut
+                'div.m6QErb.DxyBCb',      # fallback classe CSS double
+                'div.m6QErb',             # fallback classe CSS simple
+            ]
+            panel = None
+            for sel in PANEL_SELECTORS:
+                loc = page.locator(sel).first
+                try:
+                    if loc.is_visible(timeout=3000):
+                        panel = loc
+                        print_status(f"Panneau de résultats trouvé : {sel}", "info")
+                        break
+                except Exception:
+                    pass
+
+            if panel is None:
+                print_status("Panneau scrollable introuvable — fallback scroll page entière.", "warning")
+
+            # ── Scroll infini jusqu'à `total` résultats ou fin de liste ──
             previously_counted = 0
+            stall_count        = 0
+            MAX_STALL          = 4   # nb de tentatives consécutives sans nouveaux résultats
+
             while True:
-                page.mouse.wheel(0, 10000)
-                page.wait_for_selector('//a[contains(@href, "https://www.google.com/maps/place")]')
-                found = page.locator('//a[contains(@href, "https://www.google.com/maps/place")]').count()
+                # Scroll dans le bon conteneur (ou toute la page en fallback)
+                if panel:
+                    panel.evaluate("el => el.scrollBy(0, 3000)")
+                else:
+                    page.mouse.wheel(0, 5000)
+
+                page.wait_for_timeout(1800)   # laisse le DOM se mettre à jour
+
+                found = page.locator(
+                    '//a[contains(@href, "https://www.google.com/maps/place")]'
+                ).count()
                 print_status(f"Résultats Maps trouvés : {found}", "maps")
-                if found >= total or found == previously_counted:
+
+                # Détection native de fin de liste par Google
+                end_of_list = page.locator(
+                    "text=/Vous avez atteint la fin|You've reached the end|No more results/i"
+                ).count() > 0
+                if end_of_list:
+                    print_status("Fin de liste Google Maps détectée.", "info")
                     break
+
+                if found >= total:
+                    break
+
+                if found == previously_counted:
+                    stall_count += 1
+                    if stall_count >= MAX_STALL:
+                        print_status(
+                            f"Scroll bloqué ({stall_count}x sans nouveaux résultats) — arrêt.",
+                            "warning"
+                        )
+                        break
+                else:
+                    stall_count = 0   # reset dès qu'on progresse
+
                 previously_counted = found
 
             listings = page.locator('//a[contains(@href, "https://www.google.com/maps/place")]').all()[:total]
@@ -536,14 +591,12 @@ def get_user_input_interactive():
         except ValueError:
             print_status("Nombre invalide.", "error")
 
-    # ── NOUVELLE OPTION ──────────────────────────────────────────────────
     while True:
         raw = input(c("Exclure les fiches sans site web ET sans email ? (o/n, defaut: n) : ", Colors.BRIGHT_CYAN)).strip().lower()
         if raw in ('', 'o', 'n'):
             only_with_contact = (raw == 'o')
             break
         print_status("Repondre par 'o' ou 'n'.", "error")
-    # ────────────────────────────────────────────────────────────────────
 
     print()
     only_contact_label = "Oui" if only_with_contact else "Non"
@@ -570,10 +623,8 @@ def main():
     parser.add_argument("--append",                  action="store_true", help="Ajouter au CSV existant")
     parser.add_argument("--no-emails",               action="store_true", help="Desactiver le scraping d'emails")
     parser.add_argument("--max-per-site",            type=int,  default=None, help="Emails max par site (defaut: 1)")
-    # ── NOUVEL ARGUMENT CLI ─────────────────────────────────────────────
     parser.add_argument("--only-with-contact",       action="store_true",
                         help="Exclure du CSV les fiches sans site web ni email")
-    # ───────────────────────────────────────────────────────────────────
     args = parser.parse_args()
 
     if args.search:
