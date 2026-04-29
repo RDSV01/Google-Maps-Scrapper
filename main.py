@@ -74,6 +74,7 @@ STATUS_ICONS = {
     "timeout":  ("[TIMEOUT]", Colors.YELLOW),
     "maps":     ("[MAPS]   ", Colors.BRIGHT_CYAN),
     "rocket":   ("[START]  ", Colors.BRIGHT_MAGENTA),
+    "bulk":     ("[BULK]   ", Colors.BRIGHT_YELLOW),
 }
 
 
@@ -90,10 +91,18 @@ def print_header() -> None:
 | |\/| || | | | | |_) || |\/| || |_| | | | | |    
 | |  | || |_| | |  _ < | |  | ||  _  | | | | |___ 
 |_|  |_|\___/  |_| \_\|_|  |_||_| |_||___||_____|
-    Maps + Email Harvester  ·  V2.1  ·  By RDSV01
+    Maps + Email Harvester  ·  V2.2  ·  By RDSV01
 """
     print_c(banner, Colors.BRIGHT_CYAN)
     print_c("  Google Maps scraper  ->  Website email harvester".center(55), Colors.BRIGHT_YELLOW)
+    print()
+
+
+def print_bulk_header(keyword: str, index: int, total: int) -> None:
+    print()
+    print_sep("═", 80, Colors.BRIGHT_YELLOW)
+    print_c(f"  MOT-CLÉ [{index}/{total}] : {keyword}".center(80), Colors.BRIGHT_YELLOW + Colors.BOLD)
+    print_sep("═", 80, Colors.BRIGHT_YELLOW)
     print()
 
 
@@ -116,6 +125,7 @@ class Place:
     opens_at:         str            = ""
     introduction:     str            = ""
     emails:           str            = ""   # emails séparés par ";"
+    search_keyword:   str            = ""   # mot-clé source du résultat
 
 
 # ─────────────────────────────────────────────
@@ -218,7 +228,7 @@ def find_chrome_path() -> Optional[str]:
     return None
 
 
-def scrape_maps(search_for: str, total: int) -> List[Place]:
+def scrape_maps(search_for: str, total: int, keyword: str = "") -> List[Place]:
     """Scrape Google Maps et retourne la liste des fiches."""
     setup_logging()
     places: List[Place] = []
@@ -287,13 +297,11 @@ def scrape_maps(search_for: str, total: int) -> List[Place]:
             )
 
             # ── Localise le panneau de résultats scrollable ──────────────
-            # Google Maps affiche les résultats dans un conteneur indépendant ;
-            # scroller la page entière ne charge PAS de nouveaux résultats.
             PANEL_SELECTORS = [
-                'div[role="feed"]',       # sélecteur le plus stable (attribut ARIA)
-                'div.m6QErb[aria-label]', # fallback classe CSS + attribut
-                'div.m6QErb.DxyBCb',      # fallback classe CSS double
-                'div.m6QErb',             # fallback classe CSS simple
+                'div[role="feed"]',
+                'div.m6QErb[aria-label]',
+                'div.m6QErb.DxyBCb',
+                'div.m6QErb',
             ]
             panel = None
             for sel in PANEL_SELECTORS:
@@ -312,23 +320,21 @@ def scrape_maps(search_for: str, total: int) -> List[Place]:
             # ── Scroll infini jusqu'à `total` résultats ou fin de liste ──
             previously_counted = 0
             stall_count        = 0
-            MAX_STALL          = 4   # nb de tentatives consécutives sans nouveaux résultats
+            MAX_STALL          = 4
 
             while True:
-                # Scroll dans le bon conteneur (ou toute la page en fallback)
                 if panel:
                     panel.evaluate("el => el.scrollBy(0, 3000)")
                 else:
                     page.mouse.wheel(0, 5000)
 
-                page.wait_for_timeout(1800)   # laisse le DOM se mettre à jour
+                page.wait_for_timeout(1800)
 
                 found = page.locator(
                     '//a[contains(@href, "https://www.google.com/maps/place")]'
                 ).count()
                 print_status(f"Résultats Maps trouvés : {found}", "maps")
 
-                # Détection native de fin de liste par Google
                 end_of_list = page.locator(
                     "text=/Vous avez atteint la fin|You've reached the end|No more results/i"
                 ).count() > 0
@@ -348,7 +354,7 @@ def scrape_maps(search_for: str, total: int) -> List[Place]:
                         )
                         break
                 else:
-                    stall_count = 0   # reset dès qu'on progresse
+                    stall_count = 0
 
                 previously_counted = found
 
@@ -364,6 +370,7 @@ def scrape_maps(search_for: str, total: int) -> List[Place]:
                     time.sleep(1.5)
                     place = extract_place(page)
                     if place.name:
+                        place.search_keyword = keyword  # tag du mot-clé source
                         places.append(place)
                         print_status(f"[{idx}/{len(listings)}] {place.name}", "maps")
                     else:
@@ -525,7 +532,7 @@ def save_to_csv(places: List[Place], output_path: str, append: bool = False) -> 
         print_status("Aucune donnée à sauvegarder.", "warning")
         return
     for col in df.columns:
-        if df[col].nunique() <= 1:
+        if df[col].nunique() <= 1 and col != "search_keyword":
             df.drop(col, axis=1, inplace=True)
     mode   = "a" if append else "w"
     header = not (append and os.path.isfile(output_path))
@@ -533,13 +540,20 @@ def save_to_csv(places: List[Place], output_path: str, append: bool = False) -> 
     print_status(f"{len(df)} lignes sauvegardées → {output_path}", "save")
 
 
-def display_summary(places: List[Place], output_path: str, excluded_count: int = 0) -> None:
+def display_summary(
+    places: List[Place],
+    output_path: str,
+    excluded_count: int = 0,
+    keywords: Optional[List[str]] = None,
+) -> None:
     total_with_email = sum(1 for p in places if p.emails)
     print()
     print_sep("═", 80, Colors.BRIGHT_GREEN)
     excluded_line = f"  Fiches exclues    : {excluded_count} (sans site ni email)\n" if excluded_count else ""
+    kw_line = f"  Mots-clés         : {len(keywords)} ({', '.join(keywords)})\n" if keywords and len(keywords) > 1 else ""
     summary = (
         f"✅ TERMINÉ\n\n"
+        f"{kw_line}"
         f"  Fiches scrappées  : {len(places)}\n"
         f"  Avec email(s)     : {total_with_email}\n"
         f"  Sans email        : {len(places) - total_with_email}\n"
@@ -549,6 +563,12 @@ def display_summary(places: List[Place], output_path: str, excluded_count: int =
     )
     print_box(summary, Colors.BRIGHT_GREEN)
     print_sep("═", 80, Colors.BRIGHT_GREEN)
+
+
+def parse_keywords(raw: str) -> List[str]:
+    """Découpe une chaîne de mots-clés séparés par ',' ou ';' et nettoie les espaces."""
+    parts = re.split(r'[,;]', raw)
+    return [p.strip() for p in parts if p.strip()]
 
 
 # ─────────────────────────────────────────────
@@ -561,14 +581,20 @@ def get_user_input_interactive():
     print_sep("─", 50, Colors.YELLOW)
 
     while True:
-        query = input(c("Requete Google Maps (ex: restaurants paris 15e) : ", Colors.BRIGHT_CYAN)).strip()
-        if query:
-            break
+        raw_query = input(c(
+            "Requetes Google Maps — Vous pouvez séparer plusieurs mots-clés par une virgule\n"
+            "  ex: restaurants paris 15e, pizzerias lyon, sushi bordeaux\n> ",
+            Colors.BRIGHT_CYAN
+        )).strip()
+        if raw_query:
+            keywords = parse_keywords(raw_query)
+            if keywords:
+                break
         print_status("La requête ne peut pas être vide.", "error")
 
     while True:
         try:
-            raw = input(c("Nombre de fiches a scraper (defaut: 10) : ", Colors.BRIGHT_CYAN)).strip()
+            raw = input(c("Nombre de fiches à scraper PAR mot-clé (defaut: 10) : ", Colors.BRIGHT_CYAN)).strip()
             total = int(raw) if raw else 10
             if total > 0:
                 break
@@ -600,55 +626,46 @@ def get_user_input_interactive():
 
     print()
     only_contact_label = "Oui" if only_with_contact else "Non"
+    kw_display = "\n".join(f"    {i+1}. {kw}" for i, kw in enumerate(keywords))
     print_box(
         f"CONFIGURATION\n\n"
-        f"  Requete           : {query}\n"
-        f"  Fiches            : {total}\n"
+        f"  Mots-clés ({len(keywords)}) :\n{kw_display}\n"
+        f"  Fiches / mot-clé  : {total}\n"
         f"  Emails/site       : {max_per_site}\n"
         f"  Sortie            : {output}\n"
         f"  Exclure sans contact : {only_contact_label}",
         Colors.BRIGHT_GREEN
     )
     input(c("\nAppuyez sur Entree pour demarrer...", Colors.BRIGHT_YELLOW))
-    return query, total, output, max_per_site, only_with_contact
+    return keywords, total, output, max_per_site, only_with_contact
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Scrape Google Maps + emails depuis les sites web des fiches."
-    )
-    parser.add_argument("-s", "--search",            type=str,  help="Requête de recherche Google Maps")
-    parser.add_argument("-t", "--total",             type=int,  default=10,   help="Nombre de fiches à scraper")
-    parser.add_argument("-o", "--output",            type=str,  default="result.csv", help="Fichier CSV de sortie")
-    parser.add_argument("--append",                  action="store_true", help="Ajouter au CSV existant")
-    parser.add_argument("--no-emails",               action="store_true", help="Desactiver le scraping d'emails")
-    parser.add_argument("--max-per-site",            type=int,  default=None, help="Emails max par site (defaut: 1)")
-    parser.add_argument("--only-with-contact",       action="store_true",
-                        help="Exclure du CSV les fiches sans site web ni email")
-    args = parser.parse_args()
+def run_pipeline_for_keyword(
+    keyword: str,
+    kw_index: int,
+    kw_total: int,
+    total: int,
+    output_path: str,
+    max_per_site: int,
+    only_with_contact: bool,
+    no_emails: bool,
+    first_keyword: bool,
+) -> List[Place]:
+    """Exécute le pipeline complet (Maps + emails + filtre + CSV) pour un seul mot-clé."""
 
-    if args.search:
-        print_header()
-        search_for        = args.search
-        total             = args.total
-        output_path       = args.output
-        max_per_site      = args.max_per_site if args.max_per_site is not None else 1
-        only_with_contact = args.only_with_contact
-    else:
-        search_for, total, output_path, max_per_site, only_with_contact = get_user_input_interactive()
+    print_bulk_header(keyword, kw_index, kw_total)
 
     # ── Étape 1 : Google Maps ──────────────────
-    print()
     print_sep("═", 80, Colors.BRIGHT_CYAN)
     print_c("  SCRAPING GOOGLE MAPS".center(80), Colors.BRIGHT_CYAN + Colors.BOLD)
     print_sep("═", 80, Colors.BRIGHT_CYAN)
     print()
 
-    places = scrape_maps(search_for, total)
+    places = scrape_maps(keyword, total, keyword=keyword)
     print_status(f"{len(places)} fiches recuperees depuis Google Maps.", "success")
 
     # ── Étape 2 : Emails ──────────────────────
-    if not args.no_emails:
+    if not no_emails:
         places = enrich_places_with_emails(places, max_per_site=max_per_site)
     else:
         print_status("Scraping d'emails desactive (--no-emails).", "skip")
@@ -667,9 +684,86 @@ def main():
         else:
             print_status("Aucune fiche exclue (toutes ont un site ou un email).", "info")
 
-    # ── Étape 3 : Sauvegarde ──────────────────
-    save_to_csv(places, output_path, append=args.append)
-    display_summary(places, output_path, excluded_count=excluded_count)
+    # ── Étape 3 : Sauvegarde (append sauf toute première écriture) ────
+    file_already_exists = os.path.isfile(output_path)
+    append_mode = file_already_exists or not first_keyword
+    save_to_csv(places, output_path, append=append_mode)
+
+    return places
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Scrape Google Maps + emails depuis les sites web des fiches. "
+                    "Supporte plusieurs mots-clés séparés par une virgule."
+    )
+    parser.add_argument(
+        "-s", "--search",
+        type=str,
+        help="Requête(s) de recherche Google Maps. "
+             "Séparez plusieurs mots-clés par une virgule : "
+             "\"restaurants paris 15e, pizzerias lyon\""
+    )
+    parser.add_argument("-t", "--total",             type=int,  default=10,         help="Nombre de fiches à scraper PAR mot-clé")
+    parser.add_argument("-o", "--output",            type=str,  default="result.csv", help="Fichier CSV de sortie")
+    parser.add_argument("--append",                  action="store_true",            help="Ajouter au CSV existant dès le premier mot-clé")
+    parser.add_argument("--no-emails",               action="store_true",            help="Desactiver le scraping d'emails")
+    parser.add_argument("--max-per-site",            type=int,  default=None,        help="Emails max par site (defaut: 1)")
+    parser.add_argument("--only-with-contact",       action="store_true",
+                        help="Exclure du CSV les fiches sans site web ni email")
+    args = parser.parse_args()
+
+    if args.search:
+        print_header()
+        keywords          = parse_keywords(args.search)
+        total             = args.total
+        output_path       = args.output
+        max_per_site      = args.max_per_site if args.max_per_site is not None else 1
+        only_with_contact = args.only_with_contact
+        no_emails         = args.no_emails
+        # En mode CLI, --append force l'ajout au fichier existant dès le départ
+        first_is_append   = args.append
+    else:
+        keywords, total, output_path, max_per_site, only_with_contact = get_user_input_interactive()
+        no_emails       = False
+        first_is_append = False
+
+    if not keywords:
+        print_status("Aucun mot-clé valide fourni. Arrêt.", "error")
+        sys.exit(1)
+
+    if len(keywords) > 1:
+        print_status(f"Mode BULK activé : {len(keywords)} mots-clés à traiter.", "bulk")
+        for kw in keywords:
+            print_status(f"  • {kw}", "bulk")
+        print()
+
+    # ── Boucle sur les mots-clés ──────────────────────────────────────
+    all_places: List[Place] = []
+
+    for idx, keyword in enumerate(keywords, 1):
+        first_keyword = (idx == 1) and not first_is_append
+        places = run_pipeline_for_keyword(
+            keyword          = keyword,
+            kw_index         = idx,
+            kw_total         = len(keywords),
+            total            = total,
+            output_path      = output_path,
+            max_per_site     = max_per_site,
+            only_with_contact= only_with_contact,
+            no_emails        = no_emails,
+            first_keyword    = first_keyword,
+        )
+        all_places.extend(places)
+
+    # ── Résumé global ──────────────────────────────────────────────────
+    excluded_total = 0  # déjà filtrés à l'écriture par mot-clé
+    display_summary(
+        places      = all_places,
+        output_path = output_path,
+        excluded_count = excluded_total,
+        keywords    = keywords,
+    )
 
 
 if __name__ == "__main__":

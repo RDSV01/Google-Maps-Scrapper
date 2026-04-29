@@ -56,7 +56,7 @@ python main.py
 
 Le script pose les questions suivantes :
 
-- Requête Google Maps
+- Requête Google Maps (possibilité de mettre plusieurs requettes, séparées d'une virgule)
 - Nombre de fiches à scraper
 - Fichier de sortie
 - Nombre d'emails maximum par site
